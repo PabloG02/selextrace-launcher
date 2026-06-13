@@ -568,8 +568,6 @@ public final class LauncherFrame extends JFrame {
             addSpinnerRow(form, c, row++, "PostgreSQL major version", pgMajor);
             addSpinnerRow(form, c, row++, "Backend API port", backendPort);
             addSpinnerRow(form, c, row++, "Frontend port", frontendPort);
-            backendPort.setEnabled(false);
-            frontendPort.setEnabled(false);
             addLabelRow(form, c, row++, "Google client ID", clientId, "");
             addPasswordRow(form, c, row++, "Google client secret", clientSecret, revealClientSecret);
 

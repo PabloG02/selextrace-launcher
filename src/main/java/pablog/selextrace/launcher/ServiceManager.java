@@ -159,6 +159,8 @@ public final class ServiceManager {
         command.add("--selextrace.security.google-client-secret=" + clientSecret);
         command.add("--selextrace.security.frontend-success-url=http://localhost:" + config.frontendPort());
         command.add("--selextrace.security.frontend-failure-url=http://localhost:" + config.frontendPort() + "/login");
+        command.add("--selextrace.security.allowed-origins[0]=http://localhost:" + config.frontendPort());
+        command.add("--selextrace.security.allowed-origins[1]=http://127.0.0.1:" + config.frontendPort());
 
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
@@ -185,6 +187,7 @@ public final class ServiceManager {
                 "--name", handle.frontendContainerName,
                 "--pull", "always",
                 "-p", config.frontendPort() + ":80",
+                "-e", "BACKEND_URL=http://localhost:" + config.backendPort(),
                 ArtifactManager.FRONTEND_IMAGE
         ));
         runCommand(command, "frontend container");
