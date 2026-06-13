@@ -33,19 +33,6 @@ public final class PrerequisiteChecker {
         return new CheckResult(false, "Docker", "Docker daemon was not reachable");
     }
 
-    public CheckResult checkLocalWebServerTool() {
-        if (commandWorks("npx", "--version")) {
-            return new CheckResult(true, "Web server", "npx detected");
-        }
-        if (commandWorks("python3", "--version")) {
-            return new CheckResult(true, "Web server", "python3 detected");
-        }
-        if (commandWorks("python", "--version")) {
-            return new CheckResult(true, "Web server", "python detected");
-        }
-        return new CheckResult(false, "Web server", "No npx, python3, or python executable found");
-    }
-
     private boolean commandWorks(String... command) {
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(true);

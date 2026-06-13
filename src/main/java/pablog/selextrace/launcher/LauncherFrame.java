@@ -358,10 +358,8 @@ public final class LauncherFrame extends JFrame {
     private final class PrerequisitesPanel extends JPanel {
         private final JLabel javaLabel = new JLabel("Java SDK");
         private final JLabel dockerLabel = new JLabel("Docker");
-        private final JLabel webServerLabel = new JLabel("Local web server");
         private final JLabel javaDetail = new JLabel("Pending");
         private final JLabel dockerDetail = new JLabel("Pending");
-        private final JLabel webDetail = new JLabel("Pending");
         private boolean pass;
 
         PrerequisitesPanel() {
@@ -374,13 +372,12 @@ public final class LauncherFrame extends JFrame {
 
             addCard(c, 0, "Java SDK Check", "Verifies Java 25 or higher.");
             addCard(c, 1, "Docker Environment Check", "Checks the Docker daemon, with WSL fallback on Windows.");
-            addCard(c, 2, "Local Web Server Detection", "Searches for npx, python3, or python.");
 
             JButton refresh = new JButton("Run checks");
             refresh.addActionListener(e -> refresh());
             c.gridx = 0;
-            c.gridy = 3;
-            c.gridwidth = 3;
+            c.gridy = 1;
+            c.gridwidth = 2;
             c.weighty = 1;
             c.anchor = GridBagConstraints.WEST;
             add(refresh, c);
@@ -397,13 +394,11 @@ public final class LauncherFrame extends JFrame {
 
             JLabel status = switch (row) {
                 case 0 -> javaLabel;
-                case 1 -> dockerLabel;
-                default -> webServerLabel;
+                default -> dockerLabel;
             };
             JLabel detail = switch (row) {
                 case 0 -> javaDetail;
-                case 1 -> dockerDetail;
-                default -> webDetail;
+                default -> dockerDetail;
             };
 
             JPanel statusRow = new JPanel(new BorderLayout());
@@ -429,13 +424,11 @@ public final class LauncherFrame extends JFrame {
             SwingWorker<Void, Void> worker = new SwingWorker<>() {
                 CheckResult javaResult;
                 CheckResult dockerResult;
-                CheckResult webResult;
 
                 @Override
                 protected Void doInBackground() {
                     javaResult = prerequisiteChecker.checkJavaSdk25();
                     dockerResult = prerequisiteChecker.checkDocker();
-                    webResult = prerequisiteChecker.checkLocalWebServerTool();
                     return null;
                 }
 
@@ -443,8 +436,7 @@ public final class LauncherFrame extends JFrame {
                 protected void done() {
                     apply(javaLabel, javaDetail, javaResult);
                     apply(dockerLabel, dockerDetail, dockerResult);
-                    apply(webServerLabel, webDetail, webResult);
-                    pass = javaResult.ok() && dockerResult.ok() && webResult.ok();
+                    pass = javaResult.ok() && dockerResult.ok();
                     appendStatus(pass ? "Prerequisites passed." : "Prerequisites need attention before proceeding.");
                 }
             };
@@ -476,7 +468,7 @@ public final class LauncherFrame extends JFrame {
             info.setLayout(new BoxLayout(info, BoxLayout.Y_AXIS));
             JLabel heading = new JLabel("GitHub Releases Integration");
             heading.putClientProperty(FlatClientProperties.STYLE, "font: bold $h2.font");
-            JLabel body = new JLabel("<html>Downloads the latest backend JAR and frontend ZIP only when the release asset IDs differ from the cached versions.</html>");
+            JLabel body = new JLabel("<html>Downloads the latest backend JAR and pulls the frontend Docker image (<tt>ghcr.io/pablog02/selextrace-frontend:latest</tt>). The backend JAR is cached and re-downloaded only when the release asset changes.</html>");
             info.add(heading);
             info.add(Box.createVerticalStrut(6));
             info.add(body);

@@ -3,8 +3,10 @@ package pablog.selextrace.launcher;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -13,38 +15,31 @@ import java.net.http.HttpResponse;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.BiConsumer;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 public final class ArtifactManager {
-    public record ArtifactBundle(Path backendJar, Path frontendDist, String backendAssetId, String frontendAssetId) {
+    public record ArtifactBundle(Path backendJar, String backendAssetId) {
     }
 
     public record DownloadProgress(String message, int percent) {
     }
 
+    static final String FRONTEND_IMAGE = "ghcr.io/pablog02/selextrace-frontend:latest";
+
     private static final URI BACKEND_RELEASE_URI = URI.create(
             "https://api.github.com/repos/PabloG02/selextrace-backend/releases/tags/latest"
-    );
-
-    private static final URI FRONTEND_RELEASE_URI = URI.create(
-            "https://api.github.com/repos/PabloG02/selextrace-frontend/releases/tags/latest"
     );
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private final Path artifactsDir;
     private final Path backendJar;
-    private final Path frontendZip;
-    private final Path frontendDist;
     private final Path backendVersionFile;
-    private final Path frontendVersionFile;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
@@ -56,45 +51,33 @@ public final class ArtifactManager {
     public ArtifactManager(Path artifactsDir) {
         this.artifactsDir = artifactsDir;
         this.backendJar = artifactsDir.resolve("backend.jar");
-        this.frontendZip = artifactsDir.resolve("frontend.zip");
-        this.frontendDist = artifactsDir.resolve("frontend-dist");
         this.backendVersionFile = artifactsDir.resolve("backend-version.txt");
-        this.frontendVersionFile = artifactsDir.resolve("frontend-version.txt");
     }
 
     public ArtifactBundle downloadLatestArtifacts(BiConsumer<String, Integer> progressCallback) throws IOException, InterruptedException {
         Files.createDirectories(artifactsDir);
 
         JsonNode backendRelease = fetchRelease(BACKEND_RELEASE_URI);
-        JsonNode frontendRelease = fetchRelease(FRONTEND_RELEASE_URI);
 
         List<Asset> backendParsedAssets = parseAssets(backendRelease, "Backend");
-        List<Asset> frontendParsedAssets = parseAssets(frontendRelease, "Frontend");
 
         Asset backendAsset = backendParsedAssets.stream()
                 .filter(a -> a.name().endsWith(".jar"))
                 .max(Comparator.comparingLong(Asset::size))
                 .orElseThrow(() -> new IOException("No backend jar asset found in latest release"));
 
-        Asset frontendAsset = frontendParsedAssets.stream()
-                .filter(a -> a.name().equalsIgnoreCase("frontend-build.zip") || a.name().endsWith(".zip"))
-                .filter(a -> !a.name().endsWith(".jar"))
-                .findFirst()
-                .orElseThrow(() -> new IOException("No frontend zip asset found in latest release"));
-
         boolean backendNeedsDownload = needsDownload(backendVersionFile, backendAsset.id()) || Files.notExists(backendJar);
-        boolean frontendNeedsDownload = needsDownload(frontendVersionFile, frontendAsset.id()) || Files.notExists(frontendZip);
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             CompletableFuture<Path> backendFuture = CompletableFuture.completedFuture(backendJar);
-            CompletableFuture<Path> frontendFuture = CompletableFuture.completedFuture(frontendZip);
+            CompletableFuture<Void> frontendFuture = CompletableFuture.completedFuture(null);
 
             if (backendNeedsDownload) {
                 backendFuture = CompletableFuture.supplyAsync(() -> {
                     try {
                         progressCallback.accept("Downloading backend JAR", 10);
-                        downloadFile(backendAsset.url(), backendJar, progressCallback, 10, 55);
+                        downloadFile(backendAsset.url(), backendJar, progressCallback, 10, 75);
                         writeVersion(backendVersionFile, backendAsset.id());
                         return backendJar;
                     } catch (IOException | InterruptedException e) {
@@ -102,23 +85,17 @@ public final class ArtifactManager {
                     }
                 }, pool);
             } else {
-                progressCallback.accept("Backend already cached", 55);
+                progressCallback.accept("Backend already cached", 75);
             }
 
-            if (frontendNeedsDownload) {
-                frontendFuture = CompletableFuture.supplyAsync(() -> {
-                    try {
-                        progressCallback.accept("Downloading frontend ZIP", 60);
-                        downloadFile(frontendAsset.url(), frontendZip, progressCallback, 60, 85);
-                        writeVersion(frontendVersionFile, frontendAsset.id());
-                        return frontendZip;
-                    } catch (IOException | InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                }, pool);
-            } else {
-                progressCallback.accept("Frontend already cached", 85);
-            }
+            frontendFuture = CompletableFuture.runAsync(() -> {
+                try {
+                    progressCallback.accept("Pulling frontend Docker image", 80);
+                    pullDockerImage(FRONTEND_IMAGE);
+                } catch (IOException | InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }, pool);
 
             try {
                 backendFuture.join();
@@ -137,14 +114,60 @@ public final class ArtifactManager {
                 throw new IOException("Artifact download failed", cause);
             }
 
-            progressCallback.accept("Extracting frontend distribution", 90);
-            extractZip(frontendZip, frontendDist);
-            adjustBaseHref(frontendDist.resolve("index.html"));
             progressCallback.accept("Artifacts ready", 100);
 
-            return new ArtifactBundle(backendJar, frontendDist, backendAsset.id(), frontendAsset.id());
+            return new ArtifactBundle(backendJar, backendAsset.id());
         } finally {
             pool.shutdownNow();
+        }
+    }
+
+    private void pullDockerImage(String image) throws IOException, InterruptedException {
+        List<String> command = resolveDockerCommand();
+        command.add("pull");
+        command.add(image);
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            while (br.readLine() != null) {
+                // drain
+            }
+        }
+        int exit = process.waitFor();
+        if (exit != 0) {
+            throw new IOException("docker pull failed for " + image + " (exit code " + exit + ")");
+        }
+    }
+
+    private List<String> resolveDockerCommand() {
+        if (commandExists("docker")) {
+            return new ArrayList<>(List.of("docker"));
+        }
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("win") && commandExists("wsl")) {
+            return new ArrayList<>(List.of("wsl", "docker"));
+        }
+        return new ArrayList<>(List.of("docker"));
+    }
+
+    private boolean commandExists(String executable) {
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            ProcessBuilder pb = os.contains("win")
+                    ? new ProcessBuilder("where", executable)
+                    : new ProcessBuilder("sh", "-lc", "command -v " + executable);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                while (br.readLine() != null) {
+                    // drain
+                }
+            }
+            return process.waitFor() == 0;
+        } catch (IOException | InterruptedException e) {
+            return false;
         }
     }
 
@@ -207,44 +230,6 @@ public final class ArtifactManager {
         }
     }
 
-    private void extractZip(Path zipFile, Path targetDir) throws IOException {
-        deleteDirectoryIfExists(targetDir);
-        Files.createDirectories(targetDir);
-        try (ZipInputStream zin = new ZipInputStream(Files.newInputStream(zipFile))) {
-            ZipEntry entry;
-            while ((entry = zin.getNextEntry()) != null) {
-                Path out = targetDir.resolve(entry.getName()).normalize();
-                if (!out.startsWith(targetDir)) {
-                    throw new IOException("Zip entry escaped target directory: " + entry.getName());
-                }
-                if (entry.isDirectory()) {
-                    Files.createDirectories(out);
-                } else {
-                    Files.createDirectories(out.getParent());
-                    try (OutputStream os = Files.newOutputStream(out, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        zin.transferTo(os);
-                    }
-                }
-            }
-        }
-    }
-
-    private void deleteDirectoryIfExists(Path path) throws IOException {
-        if (Files.notExists(path)) {
-            return;
-        }
-        try (var stream = Files.walk(path)) {
-            stream.sorted(Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
-        }
-    }
-
     private boolean needsDownload(Path versionFile, String assetId) {
         if (Files.notExists(versionFile)) {
             return true;
@@ -260,17 +245,6 @@ public final class ArtifactManager {
     private void writeVersion(Path file, String assetId) throws IOException {
         Files.createDirectories(file.getParent());
         Files.writeString(file, assetId, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-    }
-
-    private void adjustBaseHref(Path indexHtml) {
-        if (Files.exists(indexHtml)) {
-            try {
-                String content = Files.readString(indexHtml, java.nio.charset.StandardCharsets.UTF_8);
-                content = content.replace("<base href=\"/selextrace-frontend/\">", "<base href=\"/\">");
-                Files.writeString(indexHtml, content, java.nio.charset.StandardCharsets.UTF_8);
-            } catch (IOException ignored) {
-            }
-        }
     }
 
     private record Asset(String id, String name, String url, long size) {

@@ -32,6 +32,7 @@ public final class ServiceManager {
         private Process frontendProcess;
         private final List<String> logs = new CopyOnWriteArrayList<>();
         private String dockerContainerName = "selextrace-postgres";
+        private String frontendContainerName = "selextrace-frontend";
         private boolean postgresStartedByLauncher;
         private CommandPrefix dockerPrefix = CommandPrefix.docker();
 
@@ -71,7 +72,7 @@ public final class ServiceManager {
         startBackend(handle, config, artifacts, listener);
 
         setSnapshot(listener, Status.RUNNING, Status.RUNNING, Status.STARTING, "Starting frontend...");
-        startFrontend(handle, config, artifacts, listener);
+        startFrontend(handle, config, listener);
 
         setSnapshot(listener, Status.RUNNING, Status.RUNNING, Status.RUNNING, "All services started");
     }
@@ -80,7 +81,7 @@ public final class ServiceManager {
         if (handle == null) {
             return;
         }
-        safeDestroy(handle.frontendProcess);
+        stopFrontendContainer(handle);
         safeDestroy(handle.backendProcess);
         safeDestroy(handle.postgresProcess);
         stopDockerContainer(handle);
@@ -168,27 +169,28 @@ public final class ServiceManager {
         setSnapshot(listener, Status.RUNNING, Status.RUNNING, Status.STOPPED, "Backend is ready");
     }
 
-    private void startFrontend(ServiceHandle handle, LauncherConfig config, ArtifactManager.ArtifactBundle artifacts, SnapshotListener listener)
+    private void startFrontend(ServiceHandle handle, LauncherConfig config, SnapshotListener listener)
             throws IOException, InterruptedException {
-        List<String> command = detectFrontendCommand(config.frontendPort(), artifacts.frontendDist());
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.redirectErrorStream(true);
-        pb.directory(artifacts.frontendDist().toAbsolutePath().toFile());
-        handle.frontendProcess = pb.start();
-        pumpProcess(handle.frontendProcess, "frontend", handle);
+        List<String> dockerCmd = resolveDockerPrefix(handle).prefix();
+
+        // Remove any existing frontend container (ignore failures)
+        try {
+            runCommand(withCommandSuffix(dockerCmd, "rm", "-f", handle.frontendContainerName), "remove old frontend container");
+        } catch (IOException ignored) {
+        }
+
+        List<String> command = new ArrayList<>(dockerCmd);
+        command.addAll(List.of(
+                "run", "-d",
+                "--name", handle.frontendContainerName,
+                "--pull", "always",
+                "-p", config.frontendPort() + ":80",
+                ArtifactManager.FRONTEND_IMAGE
+        ));
+        runCommand(command, "frontend container");
+        handle.frontendProcess = null;
         waitForHttp("http://localhost:" + config.frontendPort(), Duration.ofMinutes(5), 250);
         setSnapshot(listener, Status.RUNNING, Status.RUNNING, Status.RUNNING, "Frontend is ready");
-    }
-
-    private List<String> detectFrontendCommand(int port, Path dist) {
-        if (commandExists("npx")) {
-            String npx = isWindows() ? "npx.cmd" : "npx";
-            return List.of(npx, "--yes", "serve", "-s", dist.toAbsolutePath().toString(), "-l", String.valueOf(port), "--single");
-        }
-        if (commandExists("python3")) {
-            return List.of("python3", "-m", "http.server", String.valueOf(port), "--directory", dist.toAbsolutePath().toString());
-        }
-        return List.of("python", "-m", "http.server", String.valueOf(port), "--directory", dist.toAbsolutePath().toString());
     }
 
     private CommandPrefix resolveDockerPrefix(ServiceHandle handle) {
@@ -215,11 +217,17 @@ public final class ServiceManager {
 
     private void stopDockerContainer(ServiceHandle handle) {
         try {
-            if (commandExists("docker")) {
-                runCommand(List.of("docker", "stop", handle.dockerContainerName), "docker stop");
-            } else if (isWindows() && commandExists("wsl")) {
-                runCommand(List.of("wsl", "docker", "stop", handle.dockerContainerName), "docker stop");
-            }
+            List<String> dockerCmd = handle.dockerPrefix.prefix();
+            runCommand(withCommandSuffix(dockerCmd, "stop", handle.dockerContainerName), "docker stop postgres");
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void stopFrontendContainer(ServiceHandle handle) {
+        try {
+            List<String> dockerCmd = handle.dockerPrefix.prefix();
+            runCommand(withCommandSuffix(dockerCmd, "stop", handle.frontendContainerName), "docker stop frontend");
+            runCommand(withCommandSuffix(dockerCmd, "rm", "-f", handle.frontendContainerName), "docker rm frontend");
         } catch (Exception ignored) {
         }
     }
