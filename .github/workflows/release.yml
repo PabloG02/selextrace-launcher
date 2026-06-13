@@ -1,0 +1,46 @@
+name: Release JAR to GitHub Releases
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build -x test
+
+      - name: Create release and upload JAR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete the existing "latest" release and its tag (ignore failure if it's the first run)
+          gh release delete latest --cleanup-tag -y || true
+          
+          # Create a new "latest" release pointing to the current commit and upload JARs
+          gh release create latest build/libs/*.jar \
+            --title "Latest build" \
+            --notes "Continuous build generated from commit ${{ github.sha }}" \

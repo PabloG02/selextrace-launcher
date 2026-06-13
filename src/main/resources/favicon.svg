@@ -1,0 +1,57 @@
+<svg width="448" height="448" viewBox="0 0 448 448" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title id="title">SELEXTrace Logo</title>
+  <desc id="desc">Stylized double helix</desc>
+
+  <defs>
+    <!-- Mask to create the 3D 'over/under' gap effect -->
+    <mask id="crossing-gap">
+      <rect x="0" y="0" width="448" height="448" fill="white"/>
+      <path d="M138 348 C 138 224, 310 224, 310 100"
+            stroke="black"
+            stroke-width="44"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"/>
+    </mask>
+  </defs>
+
+  <!-- Material 3 Background: Primary 95 -->
+  <rect x="0" y="0" width="448" height="448" rx="134" fill="#ECF0FF" />
+
+  <!-- "Analysis" Rungs: Stylized as a Barcode / Data Sequencing -->
+  <!-- Situated behind the strands to represent the underlying data -->
+  <g opacity="0.8">
+    <!-- Top Section Rungs -->
+    <rect x="204" y="108" width="40" height="8" rx="4" fill="#284777" opacity="0.4"/>
+    <rect x="174" y="133" width="100" height="8" rx="4" fill="#284777" opacity="0.6"/>
+    <rect x="194" y="158" width="60" height="8" rx="4" fill="#284777" opacity="0.3"/>
+
+    <!-- Bottom Section Rungs -->
+    <rect x="194" y="288" width="60" height="8" rx="4" fill="#284777" opacity="0.3"/>
+    <rect x="174" y="313" width="100" height="8" rx="4" fill="#284777" opacity="0.6"/>
+    <rect x="204" y="338" width="40" height="8" rx="4" fill="#284777" opacity="0.4"/>
+  </g>
+
+  <!-- "The Pool" Strand (Background Strand) -->
+  <!-- Mirrors the main strand. Masked to appear "behind" the Trace strand -->
+  <!-- Color: Primary 60 -->
+  <path d="M310 348 C 310 224, 138 224, 138 100"
+        stroke="#7491C7"
+        stroke-width="32"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"
+        opacity="0.5"
+        mask="url(#crossing-gap)"/>
+
+  <!-- "The Trace" Strand (Foreground / Selected Aptamer) -->
+  <!-- Solid, bold, and continuous. Represents the result. -->
+  <!-- Color: Primary 30 -->
+  <path d="M138 348 C 138 224, 310 224, 310 100"
+        stroke="#284777"
+        stroke-width="32"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"/>
+
+</svg>
