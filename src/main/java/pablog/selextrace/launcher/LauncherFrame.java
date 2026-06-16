@@ -48,6 +48,29 @@ public final class LauncherFrame extends JFrame {
     private TrayIcon trayIcon;
     private boolean traySupported;
 
+    private static java.util.List<String> detectLocalAddresses() {
+        java.util.List<String> addresses = new java.util.ArrayList<>();
+        addresses.add("localhost");
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface iface = interfaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback() || iface.isVirtual()) {
+                    continue;
+                }
+                java.util.Enumeration<java.net.InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress addr = addrs.nextElement();
+                    if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress()) {
+                        addresses.add(addr.getHostAddress());
+                    }
+                }
+            }
+        } catch (java.net.SocketException ignored) {
+        }
+        return addresses;
+    }
+
     public LauncherFrame(LauncherConfigStore configStore, LauncherConfig config) {
         super("SELEXTrace Launcher");
         this.configStore = configStore;
@@ -244,7 +267,8 @@ public final class LauncherFrame extends JFrame {
 
     private void toggleTheme() {
         config = new LauncherConfig(!config.darkTheme(), config.databaseName(), config.databaseUsername(), config.databasePassword(),
-                config.postgresqlMajorVersion(), config.backendPort(), config.frontendPort(), config.googleClientId(), config.googleClientSecret());
+                config.postgresqlMajorVersion(), config.backendPort(), config.frontendPort(), config.googleClientId(), config.googleClientSecret(),
+                config.bindAddress());
         ThemeManager.apply(config.darkTheme());
         themeToggleButton.setText(config.darkTheme() ? "☀️" : "🌙");
         SwingUtilities.updateComponentTreeUI(this);
@@ -549,6 +573,7 @@ public final class LauncherFrame extends JFrame {
         private final JTextField clientId = new JTextField(24);
         private final JPasswordField clientSecret = new JPasswordField(24);
         private final JToggleButton revealClientSecret = new JToggleButton("Show");
+        private final JComboBox<String> bindAddress = new JComboBox<>(detectLocalAddresses().toArray(new String[0]));
 
         ConfigurationPanel() {
             setBorder(new EmptyBorder(10, 0, 10, 0));
@@ -570,6 +595,7 @@ public final class LauncherFrame extends JFrame {
             addSpinnerRow(form, c, row++, "Frontend port", frontendPort);
             addLabelRow(form, c, row++, "Google client ID", clientId, "");
             addPasswordRow(form, c, row++, "Google client secret", clientSecret, revealClientSecret);
+            addLabelRowCombo(form, c, row++, "Make available on", bindAddress, "Choose 'localhost' for this device only, or pick a network IP to allow other devices on your network to connect.");
 
             JPanel wrapper = new JPanel(new BorderLayout());
             wrapper.add(form, BorderLayout.NORTH);
@@ -588,6 +614,10 @@ public final class LauncherFrame extends JFrame {
             frontendPort.setValue(cfg.frontendPort());
             clientId.setText(cfg.googleClientId());
             clientSecret.setText(cfg.googleClientSecret());
+            bindAddress.setSelectedItem(cfg.bindAddress());
+            if (bindAddress.getSelectedIndex() == -1 && bindAddress.getItemCount() > 0) {
+                bindAddress.setSelectedIndex(0);
+            }
         }
 
         LauncherConfig toConfig(boolean darkTheme) {
@@ -601,6 +631,10 @@ public final class LauncherFrame extends JFrame {
             String passwordValue = new String(dbPassword.getPassword());
             String clientIdValue = clientId.getText().trim();
             String clientSecretValue = new String(clientSecret.getPassword());
+            String bindAddressValue = (String) bindAddress.getSelectedItem();
+            if (bindAddressValue == null || bindAddressValue.isBlank()) {
+                bindAddressValue = "localhost";
+            }
 
             validateRequired(databaseNameValue, "Database name");
             validateRequired(databaseUserValue, "Database username");
@@ -615,7 +649,8 @@ public final class LauncherFrame extends JFrame {
                     (int) backendPort.getValue(),
                     (int) frontendPort.getValue(),
                     clientIdValue,
-                    clientSecretValue
+                    clientSecretValue,
+                    bindAddressValue
             );
         }
 
@@ -623,6 +658,20 @@ public final class LauncherFrame extends JFrame {
             if (value == null || value.isBlank()) {
                 throw new IllegalArgumentException(label + " is required.");
             }
+        }
+
+        private void addLabelRowCombo(JPanel form, GridBagConstraints c, int row, String label, JComboBox<String> combo, String tooltip) {
+            JLabel l = new JLabel(label);
+            l.setToolTipText(tooltip);
+            c.gridx = 0;
+            c.gridy = row;
+            c.weightx = 0.28;
+            form.add(l, c);
+
+            combo.setToolTipText(tooltip);
+            c.gridx = 1;
+            c.weightx = 0.72;
+            form.add(combo, c);
         }
 
         private void addLabelRow(JPanel form, GridBagConstraints c, int row, String label, JTextField field, String placeholder) {
@@ -729,7 +778,7 @@ public final class LauncherFrame extends JFrame {
 
             JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
             rightActions.setOpaque(false);
-            browserButton.addActionListener(e -> serviceManager.openBrowser(config.frontendPort()));
+            browserButton.addActionListener(e -> serviceManager.openBrowser(config.bindAddress(), config.frontendPort()));
             rightActions.add(browserButton);
 
             actions.add(leftActions, BorderLayout.WEST);

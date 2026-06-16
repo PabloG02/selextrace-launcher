@@ -40,7 +40,8 @@ public final class LauncherConfigStore {
                 parseInt(props.getProperty("port.backend"), defaults.backendPort(), 1, 65535),
                 parseInt(props.getProperty("port.frontend"), defaults.frontendPort(), 1, 65535),
                 props.getProperty("oauth.clientId", defaults.googleClientId()),
-                props.getProperty("oauth.clientSecret", defaults.googleClientSecret())
+                props.getProperty("oauth.clientSecret", defaults.googleClientSecret()),
+                props.getProperty("network.bindAddress", defaults.bindAddress())
         );
     }
 
@@ -55,6 +56,7 @@ public final class LauncherConfigStore {
         props.setProperty("port.frontend", Integer.toString(config.frontendPort()));
         props.setProperty("oauth.clientId", config.googleClientId());
         props.setProperty("oauth.clientSecret", config.googleClientSecret());
+        props.setProperty("network.bindAddress", config.bindAddress());
 
         try (OutputStream out = Files.newOutputStream(configPath)) {
             props.store(out, "SELEXTrace Launcher configuration");

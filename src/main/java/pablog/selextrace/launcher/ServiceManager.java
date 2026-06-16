@@ -92,12 +92,13 @@ public final class ServiceManager {
         listener.accept(new ServiceSnapshot(postgres, backend, frontend, details));
     }
 
-    public void openBrowser(int frontendPort) {
+    public void openBrowser(String bindAddress, int frontendPort) {
         if (!Desktop.isDesktopSupported()) {
             return;
         }
         try {
-            Desktop.getDesktop().browse(URI.create("http://localhost:" + frontendPort));
+            String host = "localhost".equals(bindAddress) ? "localhost" : bindAddress;
+            Desktop.getDesktop().browse(URI.create("http://" + host + ":" + frontendPort));
         } catch (Exception ignored) {
         }
     }
@@ -116,7 +117,7 @@ public final class ServiceManager {
                     "-e", "POSTGRES_DB=" + config.databaseName(),
                     "-e", "POSTGRES_USER=" + config.databaseUsername(),
                     "-e", "POSTGRES_PASSWORD=" + config.databasePassword(),
-                    "-p", "5432:5432",
+                    "-p", "127.0.0.1:5432:5432",
                     image
             ));
             runCommand(command, "postgres container");
@@ -146,28 +147,35 @@ public final class ServiceManager {
             clientSecret = "dummy-client-secret";
         }
 
+        String backendBindAddress = "localhost".equals(config.bindAddress()) ? "127.0.0.1" : config.bindAddress();
+        String frontendHost = "localhost".equals(config.bindAddress()) ? "localhost" : config.bindAddress().equals("0.0.0.0") ? "*" : config.bindAddress();
+
         List<String> command = new ArrayList<>();
         command.add(resolveJavaExecutable());
         command.add("-jar");
         command.add(artifacts.backendJar().toAbsolutePath().toString());
         command.add("--server.port=" + config.backendPort());
+        command.add("--server.address=" + backendBindAddress);
         command.add("--spring.datasource.url=jdbc:postgresql://localhost:5432/" + encodeQueryValue(config.databaseName()));
         command.add("--spring.datasource.username=" + config.databaseUsername());
         command.add("--spring.datasource.password=" + config.databasePassword());
         command.add("--spring.jpa.hibernate.ddl-auto=update");
         command.add("--selextrace.security.google-client-id=" + clientId);
         command.add("--selextrace.security.google-client-secret=" + clientSecret);
-        command.add("--selextrace.security.frontend-success-url=http://localhost:" + config.frontendPort());
-        command.add("--selextrace.security.frontend-failure-url=http://localhost:" + config.frontendPort() + "/login");
+        command.add("--selextrace.security.frontend-success-url=http://" + frontendHost + ":" + config.frontendPort());
+        command.add("--selextrace.security.frontend-failure-url=http://" + frontendHost + ":" + config.frontendPort() + "/login");
         command.add("--selextrace.security.allowed-origins[0]=http://localhost:" + config.frontendPort());
         command.add("--selextrace.security.allowed-origins[1]=http://127.0.0.1:" + config.frontendPort());
+        if (!"localhost".equals(frontendHost) && !"*".equals(frontendHost)) {
+            command.add("--selextrace.security.allowed-origins[2]=http://" + frontendHost + ":" + config.frontendPort());
+        }
 
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         pb.directory(artifacts.backendJar().toAbsolutePath().getParent().toFile());
         handle.backendProcess = pb.start();
         pumpProcess(handle.backendProcess, "backend", handle);
-        waitForPort("127.0.0.1", config.backendPort(), Duration.ofMinutes(5), 250);
+        waitForPort(backendBindAddress, config.backendPort(), Duration.ofMinutes(5), 250);
         setSnapshot(listener, Status.RUNNING, Status.RUNNING, Status.STOPPED, "Backend is ready");
     }
 
@@ -181,18 +189,24 @@ public final class ServiceManager {
         } catch (IOException ignored) {
         }
 
+        String hostBind = switch (config.bindAddress()) {
+            case "localhost" -> "127.0.0.1";
+            default -> config.bindAddress();
+        };
+        String frontendHost = "localhost".equals(config.bindAddress()) ? "localhost" : config.bindAddress();
+
         List<String> command = new ArrayList<>(dockerCmd);
         command.addAll(List.of(
                 "run", "-d",
                 "--name", handle.frontendContainerName,
                 "--pull", "always",
-                "-p", config.frontendPort() + ":80",
-                "-e", "BACKEND_URL=http://localhost:" + config.backendPort(),
+                "-p", hostBind + ":" + config.frontendPort() + ":80",
+                "-e", "BACKEND_URL=http://" + frontendHost + ":" + config.backendPort(),
                 ArtifactManager.FRONTEND_IMAGE
         ));
         runCommand(command, "frontend container");
         handle.frontendProcess = null;
-        waitForHttp("http://localhost:" + config.frontendPort(), Duration.ofMinutes(5), 250);
+        waitForHttp("http://" + frontendHost + ":" + config.frontendPort(), Duration.ofMinutes(5), 250);
         setSnapshot(listener, Status.RUNNING, Status.RUNNING, Status.RUNNING, "Frontend is ready");
     }
 

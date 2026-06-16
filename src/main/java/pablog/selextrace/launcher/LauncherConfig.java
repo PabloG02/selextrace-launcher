@@ -9,7 +9,8 @@ public record LauncherConfig(
         int backendPort,
         int frontendPort,
         String googleClientId,
-        String googleClientSecret
+        String googleClientSecret,
+        String bindAddress
 ) {
     public static LauncherConfig defaults() {
         return new LauncherConfig(
@@ -21,7 +22,8 @@ public record LauncherConfig(
                 8080,
                 4200,
                 "",
-                ""
+                "",
+                "localhost"
         );
     }
 }
